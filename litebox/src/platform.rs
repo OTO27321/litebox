@@ -7,6 +7,8 @@ pub trait Provider {
     /// Punch through any functionality that is not explicitly part of the common shared
     /// platform interface. See [`Punchthrough`] for details.
     type Punchthrough: Punchthrough;
+    /// Allocate a new [`RawMutex`].
+    fn new_raw_mutex(&self) -> impl RawMutex;
 }
 
 /// Punchthrough support allowing access to functionality not captured by [`Provider`].
@@ -76,4 +78,41 @@ where
             },
         }
     }
+}
+
+/// A raw mutex/lock API; expected to roughly match (or even be implemented using) a Linux futex.
+pub trait RawMutex: Send + Sync {
+    /// Wake up `n` threads blocked on on this raw mutex.
+    ///
+    /// Returns the number of waiters that were woken up.
+    fn wake_many(&self, n: usize) -> usize;
+
+    /// Wake up one thread blocked on this raw mutex.
+    ///
+    /// Returns true if this actually woke up such a thread, or false if no thread was waiting on this raw mutex.
+    fn wake_one(&self) -> bool {
+        self.wake_many(1) > 0
+    }
+
+    /// Wake up all threads that are blocked on this raw mutex.
+    ///
+    /// Returns the number of waiters that were woken up.
+    fn wake_all(&self) -> usize {
+        self.wake_many(usize::MAX)
+    }
+
+    /// Block until a wake operation wakes us up.
+    fn block(&self);
+
+    /// Block until a wake operation wakes us up, or some `time` has passed without a wake operation
+    /// having occured.
+    fn block_or_timeout(&self, time: core::time::Duration) -> UnblockedOrTimedOut;
+}
+
+/// Named-boolean to indicate whether [`RawMutex::block_or_timeout`] was woken up or timed out.
+pub enum UnblockedOrTimedOut {
+    /// Unblocked by a wake call
+    Unblocked,
+    /// Sufficient time elapsed without a wake call
+    TimedOut,
 }
