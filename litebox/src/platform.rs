@@ -145,12 +145,12 @@ pub trait IPInterfaceProvider {
     fn receive_ip_packet(&self, packet: &mut [u8]) -> Result<usize, ReceiveError>;
 }
 
-/// A non-exhaustive list of errors that can be thrown by [`IPInterfaceProvider::send`].
+/// A non-exhaustive list of errors that can be thrown by [`IPInterfaceProvider::send_ip_packet`].
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum SendError {}
 
-/// A non-exhaustive list of errors that can be thrown by [`IPInterfaceProvider::recv`].
+/// A non-exhaustive list of errors that can be thrown by [`IPInterfaceProvider::receive_ip_packet`].
 #[derive(Error, Debug)]
 #[non_exhaustive]
 pub enum ReceiveError {}
