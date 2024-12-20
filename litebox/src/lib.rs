@@ -31,3 +31,4 @@ pub mod fs;
 pub mod net;
 pub mod path;
 pub mod platform;
+pub mod sync;
