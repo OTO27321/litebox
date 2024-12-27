@@ -22,11 +22,22 @@ pub use rwlock::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 #[cfg(not(feature = "lock_tracing"))]
 /// A convenience name for specific requirements from the platform
 pub trait RawSyncPrimitivesProvider: platform::RawMutexProvider + 'static {}
+#[cfg(not(feature = "lock_tracing"))]
+impl<Platform> RawSyncPrimitivesProvider for Platform where
+    Platform: platform::RawMutexProvider + 'static
+{
+}
 
 #[cfg(feature = "lock_tracing")]
 /// A convenience name for specific requirements from the platform
 pub trait RawSyncPrimitivesProvider:
     platform::RawMutexProvider + platform::TimeProvider + platform::DebugLogProvider + 'static
+{
+}
+#[cfg(feature = "lock_tracing")]
+impl<Platform> RawSyncPrimitivesProvider for Platform where
+    Platform:
+        platform::RawMutexProvider + platform::TimeProvider + platform::DebugLogProvider + 'static
 {
 }
 
