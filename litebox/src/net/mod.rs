@@ -1,6 +1,6 @@
 //! Network-related functionality
 
-use core::{net::SocketAddr, num::NonZeroU32};
+use core::net::SocketAddr;
 
 use crate::platform;
 
@@ -20,7 +20,20 @@ pub struct Network<Platform: platform::Provider> {
 /// Possible errors from a [`Network`]
 #[non_exhaustive]
 #[derive(Error, Debug)]
-pub enum NetError {}
+pub enum NetError {
+    #[error("Unsupported protocol {0}")]
+    UnsupportedProtocol(u8),
+    #[error("Unsupported address {0}")]
+    UnsupportedAddress(SocketAddr),
+    #[error("Not a valid open file descriptor")]
+    InvalidFd,
+    #[error("Port allocation failed: {0}")]
+    PortAllocationFailure(#[from] sockets::LocalPortAllocationError),
+    #[error("Socket is in an invalid state")]
+    SocketInInvalidState,
+    #[error("Operation finished")]
+    OperationFinished,
+}
 
 /// A convenience type-alias for networking results
 type Result<T> = core::result::Result<T, NetError>;
@@ -43,15 +56,15 @@ impl<Platform: platform::Provider> Network<Platform> {
 pub struct SocketFd {
     pub(crate) fd: crate::fd::OwnedFd,
 }
+impl SocketFd {
+    fn as_usize(&self) -> usize {
+        self.fd.as_raw_fd().try_into().unwrap()
+    }
+}
 
 impl<Platform: platform::Provider> Network<Platform> {
     /// Creates a socket.
-    pub fn socket(
-        &self,
-        domain: AddressFamily,
-        type_: SocketType,
-        protocol: Option<Protocol>,
-    ) -> Result<SocketFd> {
+    pub fn socket(&self, protocol: Protocol) -> Result<SocketFd> {
         todo!()
     }
 
@@ -93,35 +106,13 @@ impl<Platform: platform::Provider> Network<Platform> {
     }
 }
 
-/// `AF_*` constants for use with [`Network::socket`]
+/// Protocols for sockets supported by LiteBox
 #[non_exhaustive]
-#[repr(i32)]
-pub enum AddressFamily {
-    /// `AF_LOCAL`/`AF_UNIX`: Local communication.
-    Local = 1,
-    /// `AF_INET`: IPv4 Internet protocols.
-    Inet = 2,
-    /// `AF_NETLINK`: Kernel user interface device.
-    Netlink = 16,
-}
-
-/// `SOCK_*` constants for use with [`Network::socket`]
-#[non_exhaustive]
-#[repr(i32)]
-pub enum SocketType {
-    /// `SOCK_STREAM`: Provides sequenced, reliable, two-way, connection-based byte streams.
-    Stream = 1,
-    /// `SOCK_DGRAM`: Supports datagrams (connectionless, unreliable messages of a fixed maximum length).
-    Datagram = 2,
-    /// `SOCK_RAW`: Provides raw network protocol access.
-    Raw = 3,
-}
-
-/// Protocol constants for use with [`Network::socket`]
-pub struct Protocol {
-    // TODO(jayb): Does this need to be public, or can we restrict by specifying an enum of values
-    // we want to support/allow?
-    pub protocol: NonZeroU32,
+pub enum Protocol {
+    Tcp,
+    Udp,
+    Icmp,
+    Raw { protocol: u8 },
 }
 
 bitflags! {

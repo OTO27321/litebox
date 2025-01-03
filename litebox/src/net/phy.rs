@@ -6,12 +6,22 @@
 use crate::platform;
 
 /// The maximum transmission unit for a device
-pub const DEVICE_MTU: usize = 1600;
+pub(crate) const DEVICE_MTU: usize = 1600;
 
-struct Device<Platform: platform::IPInterfaceProvider + 'static> {
-    platform: &'static Platform,
+pub(crate) struct Device<Platform: platform::IPInterfaceProvider + 'static> {
+    pub(crate) platform: &'static Platform,
     receive_buffer: [u8; DEVICE_MTU],
     send_buffer: [u8; DEVICE_MTU],
+}
+
+impl<Platform: platform::IPInterfaceProvider + 'static> Device<Platform> {
+    pub(crate) fn new(platform: &'static Platform) -> Self {
+        Self {
+            platform,
+            receive_buffer: [0u8; DEVICE_MTU],
+            send_buffer: [0u8; DEVICE_MTU],
+        }
+    }
 }
 
 impl<Platform: platform::IPInterfaceProvider + 'static> smoltcp::phy::Device for Device<Platform> {
@@ -52,7 +62,7 @@ impl<Platform: platform::IPInterfaceProvider + 'static> smoltcp::phy::Device for
     }
 }
 
-struct RxToken<'a> {
+pub(crate) struct RxToken<'a> {
     buffer: &'a [u8],
 }
 
@@ -65,7 +75,7 @@ impl smoltcp::phy::RxToken for RxToken<'_> {
     }
 }
 
-struct TxToken<'a, Platform: platform::IPInterfaceProvider + 'static> {
+pub(crate) struct TxToken<'a, Platform: platform::IPInterfaceProvider + 'static> {
     platform: &'static Platform,
     buffer: &'a mut [u8],
 }
