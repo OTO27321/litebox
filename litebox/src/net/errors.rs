@@ -43,7 +43,14 @@ pub enum ConnectError {
 /// Possible errors from [`Network::bind`]
 #[non_exhaustive]
 #[derive(Error, Debug)]
-pub enum BindError {}
+pub enum BindError {
+    #[error("Not a valid open file descriptor")]
+    InvalidFd,
+    #[error("Unsupported address {0}")]
+    UnsupportedAddress(SocketAddr),
+    #[error("Port {0} already in use")]
+    PortAlreadyInUse(u16),
+}
 
 /// Possible errors from [`Network::listen`]
 #[non_exhaustive]

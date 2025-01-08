@@ -47,6 +47,7 @@ pub struct Network<Platform: platform::IPInterfaceProvider + platform::TimeProvi
     /// Initial instant of creation, used as an arbitrary stop point from when time begins
     zero_time: Platform::Instant,
     /// An allocator for local ports
+    // TODO: Maybe we should have separate allocators for TCP, UDP, ...?
     local_port_allocator: LocalPortAllocator,
 }
 
@@ -82,6 +83,8 @@ struct SocketHandle {
     protocol: Protocol,
     /// A local port associated with this socket, if any
     local_port: Option<LocalPort>,
+    /// IP listening endpoint, if used as a server socket
+    ip_listening_endpoint: Option<smoltcp::wire::IpListenEndpoint>,
 }
 
 impl<Platform: platform::IPInterfaceProvider + platform::TimeProvider + 'static> Network<Platform> {
@@ -157,6 +160,7 @@ impl<Platform: platform::IPInterfaceProvider + platform::TimeProvider + 'static>
             handle,
             protocol,
             local_port: None,
+            ip_listening_endpoint: None,
         }));
 
         Ok(SocketFd {
@@ -219,8 +223,57 @@ impl<Platform: platform::IPInterfaceProvider + platform::TimeProvider + 'static>
     }
 
     /// Bind a socket to a specific address and port.
-    pub fn bind(&mut self, fd: &SocketFd, addr: &SocketAddr) -> Result<(), BindError> {
-        todo!()
+    pub fn bind(&mut self, fd: &SocketFd, socket_addr: &SocketAddr) -> Result<(), BindError> {
+        let SocketAddr::V4(addr) = socket_addr else {
+            return Err(BindError::UnsupportedAddress(*socket_addr));
+        };
+
+        let socket_handle = self.handles[fd.x.as_usize()]
+            .as_mut()
+            .ok_or(BindError::InvalidFd)?;
+
+        match socket_handle.protocol {
+            Protocol::Tcp => {
+                if socket_handle.ip_listening_endpoint.is_some() {
+                    // Need to think about how to ahdnle this situation
+                    unimplemented!()
+                }
+                let port = match self.local_port_allocator.specific_port(
+                    addr.port()
+                        .try_into()
+                        .or(Err(BindError::UnsupportedAddress(*socket_addr)))?,
+                ) {
+                    Ok(lp) => {
+                        let old_lp = core::mem::replace(&mut socket_handle.local_port, Some(lp));
+                        if let Some(old) = old_lp {
+                            self.local_port_allocator.deallocate(old);
+                            // Currently unsure if the dealloc is sufficient and if we need to do
+                            // anything else here (possibly return an error message due to trying to
+                            // do things to a connected socket, not sure), so just marking as
+                            // unimplemented for now to trigger a panic.
+                            unimplemented!()
+                        }
+                        addr.port()
+                    }
+                    Err(e) => match e {
+                        local_ports::LocalPortAllocationError::AlreadyInUse(p) => {
+                            return Err(BindError::PortAlreadyInUse(p));
+                        }
+                        local_ports::LocalPortAllocationError::NoAvailableFreePorts => {
+                            unreachable!()
+                        }
+                    },
+                };
+                socket_handle.ip_listening_endpoint = Some(smoltcp::wire::IpListenEndpoint {
+                    addr: Some(smoltcp::wire::IpAddress::Ipv4(*addr.ip())),
+                    port,
+                });
+                Ok(())
+            }
+            Protocol::Udp => unimplemented!(),
+            Protocol::Icmp => unimplemented!(),
+            Protocol::Raw { protocol } => unimplemented!(),
+        }
     }
 
     /// Prepare a socket to accept incoming connections.
