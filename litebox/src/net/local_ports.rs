@@ -2,14 +2,19 @@
 
 use core::num::{NonZeroU16, NonZeroU64};
 
-use hashbrown::HashSet;
+use hashbrown::HashMap;
 use thiserror::Error;
 
 use crate::utilities::rng::FastRng;
 
-/// An allocator for local ports, making sure that no already-allocated ports are given out
+/// An allocator for local ports, making sure that no already-allocated ports are given out either
+/// in case of ephemeral port allocation, or in the case of asking for a specific port.
 pub(crate) struct LocalPortAllocator {
-    allocated: HashSet<NonZeroU16>,
+    // map from port number -> reference count
+    //
+    // using a non-zero u16 for the reference count is a memory optimization; if this is ever an
+    // issue, it can trivially be bumped up to a larger size.
+    refcount: HashMap<NonZeroU16, NonZeroU16>,
     rng: FastRng,
 }
 
@@ -23,7 +28,7 @@ impl LocalPortAllocator {
     /// Sets up a new local port allocator
     pub(crate) fn new() -> Self {
         Self {
-            allocated: HashSet::new(),
+            refcount: HashMap::new(),
             rng: FastRng::new_from_seed(NonZeroU64::new(0x13374a4159421337).unwrap()),
         }
     }
@@ -55,27 +60,45 @@ impl LocalPortAllocator {
         &mut self,
         port: NonZeroU16,
     ) -> Result<LocalPort, LocalPortAllocationError> {
-        if self.allocated.insert(port) {
-            Ok(LocalPort { port })
-        } else {
+        if self.refcount.contains_key(&port) {
             Err(LocalPortAllocationError::AlreadyInUse(port.get()))
+        } else {
+            self.refcount.insert(port, NonZeroU16::new(1).unwrap());
+            Ok(LocalPort { port })
         }
     }
 
-    /// Increments the ref-count for a local port, producing a new `LocalPort` token to be used
+    /// Increments the ref-count for a local port, producing a new [`LocalPort`] token to be used
     #[must_use]
     pub(crate) fn allocate_same_local_port(&mut self, port: &LocalPort) -> LocalPort {
-        // TODO(jayb): Definitely have to rethink this entire module now that I want this particular
-        // interface here.
-        todo!()
+        let Some(refcount) = self.refcount.get_mut(&port.port) else {
+            // Because we have a `LocalPort`, it is (as an invariant) impossible to have the value
+            // be missing from the refcount.
+            unreachable!()
+        };
+        // We just bump the refcount, making sure there is no overflow, and then produce the new
+        // `LocalPort` token.
+        *refcount = refcount.checked_add(1).unwrap();
+        LocalPort { port: port.port }
     }
 
-    /// Marks a [`LocalPort`] as available again, consuming it
+    /// Consumes a [`LocalPort`], possibly marking it as available again.
     pub(crate) fn deallocate(&mut self, port: LocalPort) {
-        let was_removed = self.allocated.remove(&port.port);
-        // As an invariant, the only production of `LocalPort` can happen from here, thus it should
-        // be impossible to have a `LocalPort` containing a non-allocated spot.
-        assert!(was_removed);
+        let Some(refcount) = self.refcount.get_mut(&port.port) else {
+            // Because we have a `LocalPort`, it is (as an invariant) impossible to have the value
+            // be missing from the refcount.
+            unreachable!()
+        };
+        match refcount.get() {
+            0 => unreachable!(),
+            1 => {
+                // Need to drop
+                self.refcount.remove(&port.port);
+            }
+            _ => {
+                *refcount = NonZeroU16::new(refcount.get() - 1).unwrap();
+            }
+        }
     }
 }
 
