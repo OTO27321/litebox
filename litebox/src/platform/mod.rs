@@ -6,6 +6,9 @@
 
 pub mod trivial_providers;
 
+#[cfg(test)]
+pub(crate) mod mock;
+
 use either::Either;
 use thiserror::Error;
 
