@@ -8,14 +8,14 @@ use crate::platform;
 /// The maximum transmission unit for a device
 pub(crate) const DEVICE_MTU: usize = 1600;
 
-pub(crate) struct Device<Platform: platform::IPInterfaceProvider + 'static> {
-    pub(crate) platform: &'static Platform,
+pub(crate) struct Device<'platform, Platform: platform::IPInterfaceProvider> {
+    pub(crate) platform: &'platform Platform,
     receive_buffer: [u8; DEVICE_MTU],
     send_buffer: [u8; DEVICE_MTU],
 }
 
-impl<Platform: platform::IPInterfaceProvider + 'static> Device<Platform> {
-    pub(crate) fn new(platform: &'static Platform) -> Self {
+impl<'platform, Platform: platform::IPInterfaceProvider> Device<'platform, Platform> {
+    pub(crate) fn new(platform: &'platform Platform) -> Self {
         Self {
             platform,
             receive_buffer: [0u8; DEVICE_MTU],
@@ -24,9 +24,15 @@ impl<Platform: platform::IPInterfaceProvider + 'static> Device<Platform> {
     }
 }
 
-impl<Platform: platform::IPInterfaceProvider + 'static> smoltcp::phy::Device for Device<Platform> {
-    type RxToken<'a> = RxToken<'a>;
-    type TxToken<'a> = TxToken<'a, Platform>;
+impl<Platform: platform::IPInterfaceProvider> smoltcp::phy::Device for Device<'_, Platform> {
+    type RxToken<'a>
+        = RxToken<'a>
+    where
+        Self: 'a;
+    type TxToken<'a>
+        = TxToken<'a, Platform>
+    where
+        Self: 'a;
 
     fn receive(
         &mut self,
@@ -75,14 +81,12 @@ impl smoltcp::phy::RxToken for RxToken<'_> {
     }
 }
 
-pub(crate) struct TxToken<'a, Platform: platform::IPInterfaceProvider + 'static> {
-    platform: &'static Platform,
+pub(crate) struct TxToken<'a, Platform: platform::IPInterfaceProvider> {
+    platform: &'a Platform,
     buffer: &'a mut [u8],
 }
 
-impl<Platform: platform::IPInterfaceProvider + 'static> smoltcp::phy::TxToken
-    for TxToken<'_, Platform>
-{
+impl<Platform: platform::IPInterfaceProvider> smoltcp::phy::TxToken for TxToken<'_, Platform> {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,

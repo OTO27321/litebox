@@ -33,8 +33,8 @@ const MAX_PACKET_COUNT: usize = 32;
 /// The `Network` provides access to all networking related functionality provided by LiteBox.
 ///
 /// A LiteBox `Network` is parametric in the platform it runs on.
-pub struct Network<Platform: platform::IPInterfaceProvider + platform::TimeProvider + 'static> {
-    platform: &'static Platform,
+pub struct Network<'platform, Platform: platform::IPInterfaceProvider + platform::TimeProvider> {
+    platform: &'platform Platform,
     /// The set of sockets
     socket_set: smoltcp::iface::SocketSet<'static>,
     /// Handles into the `socket_set`; the position/index corresponds to the `raw_fd` of the
@@ -42,7 +42,7 @@ pub struct Network<Platform: platform::IPInterfaceProvider + platform::TimeProvi
     // TODO: Maybe a better name for this, and `SocketHandle`?
     handles: Vec<Option<SocketHandle>>,
     /// The actual "physical" device, that connects to the platform
-    device: phy::Device<Platform>,
+    device: phy::Device<'platform, Platform>,
     /// The smoltcp network interface
     interface: smoltcp::iface::Interface,
     /// Initial instant of creation, used as an arbitrary stop point from when time begins
@@ -52,13 +52,15 @@ pub struct Network<Platform: platform::IPInterfaceProvider + platform::TimeProvi
     local_port_allocator: LocalPortAllocator,
 }
 
-impl<Platform: platform::IPInterfaceProvider + platform::TimeProvider + 'static> Network<Platform> {
+impl<'platform, Platform: platform::IPInterfaceProvider + platform::TimeProvider>
+    Network<'platform, Platform>
+{
     /// Construct a new `Network` instance
     ///
     /// This function is expected to only be invoked once per platform, as an initialization step,
     /// and the created `Network` handle is expected to be shared across all usage over the
     /// system.
-    pub fn new(platform: &'static Platform) -> Self {
+    pub fn new(platform: &'platform Platform) -> Self {
         let mut device = phy::Device::new(platform);
         let config = smoltcp::iface::Config::new(smoltcp::wire::HardwareAddress::Ip);
         let interface =
@@ -237,7 +239,7 @@ impl ProtocolSpecific {
     }
 }
 
-impl<Platform: platform::IPInterfaceProvider + platform::TimeProvider + 'static> Network<Platform> {
+impl<Platform: platform::IPInterfaceProvider + platform::TimeProvider> Network<'_, Platform> {
     /// Explicitly private-only function that returns the current (smoltcp) Instant, relative to the
     /// initialized arbitrary 0-point in time.
     fn now(&self) -> smoltcp::time::Instant {

@@ -21,23 +21,19 @@ pub use rwlock::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[cfg(not(feature = "lock_tracing"))]
 /// A convenience name for specific requirements from the platform
-pub trait RawSyncPrimitivesProvider: platform::RawMutexProvider + 'static {}
+pub trait RawSyncPrimitivesProvider: platform::RawMutexProvider {}
 #[cfg(not(feature = "lock_tracing"))]
-impl<Platform> RawSyncPrimitivesProvider for Platform where
-    Platform: platform::RawMutexProvider + 'static
-{
-}
+impl<Platform> RawSyncPrimitivesProvider for Platform where Platform: platform::RawMutexProvider {}
 
 #[cfg(feature = "lock_tracing")]
 /// A convenience name for specific requirements from the platform
 pub trait RawSyncPrimitivesProvider:
-    platform::RawMutexProvider + platform::TimeProvider + platform::DebugLogProvider + 'static
+    platform::RawMutexProvider + platform::TimeProvider + platform::DebugLogProvider
 {
 }
 #[cfg(feature = "lock_tracing")]
 impl<Platform> RawSyncPrimitivesProvider for Platform where
-    Platform:
-        platform::RawMutexProvider + platform::TimeProvider + platform::DebugLogProvider + 'static
+    Platform: platform::RawMutexProvider + platform::TimeProvider + platform::DebugLogProvider
 {
 }
 
@@ -45,20 +41,20 @@ impl<Platform> RawSyncPrimitivesProvider for Platform where
 /// LiteBox.
 ///
 /// A LiteBox `Synchronization` is parametric in the platform it runs on.
-pub struct Synchronization<Platform: RawSyncPrimitivesProvider> {
-    platform: &'static Platform,
+pub struct Synchronization<'platform, Platform: RawSyncPrimitivesProvider> {
+    platform: &'platform Platform,
 
     #[cfg(feature = "lock_tracing")]
-    tracker: lock_tracing::LockTracker<Platform>,
+    tracker: lock_tracing::LockTracker<'platform, Platform>,
 }
 
-impl<Platform: RawSyncPrimitivesProvider> Synchronization<Platform> {
+impl<'platform, Platform: RawSyncPrimitivesProvider> Synchronization<'platform, Platform> {
     /// Construct a new `Synchronization` instance
     ///
     /// This function is expected to only be invoked once per platform, as an initialization step,
     /// and the created `Synchronization` handle is expected to be shared across all usage over the
     /// system.
-    pub fn new(platform: &'static Platform) -> Self {
+    pub fn new(platform: &'platform Platform) -> Self {
         Self {
             platform,
             #[cfg(feature = "lock_tracing")]
@@ -67,7 +63,7 @@ impl<Platform: RawSyncPrimitivesProvider> Synchronization<Platform> {
     }
 }
 
-impl<Platform: RawSyncPrimitivesProvider> Synchronization<Platform> {
+impl<'platform, Platform: RawSyncPrimitivesProvider> Synchronization<'platform, Platform> {
     /// Create a new [`Condvar`]
     #[must_use]
     pub fn new_condvar(&self) -> Condvar<Platform> {
@@ -76,13 +72,13 @@ impl<Platform: RawSyncPrimitivesProvider> Synchronization<Platform> {
 
     /// Create a new [`Mutex`]
     #[must_use]
-    pub fn new_mutex<T>(&self, val: T) -> Mutex<Platform, T> {
+    pub fn new_mutex<T>(&self, val: T) -> Mutex<'platform, Platform, T> {
         Mutex::new_from_synchronization(self, val)
     }
 
     /// Create a new [`Mutex`]
     #[must_use]
-    pub fn new_rwlock<T>(&self, val: T) -> RwLock<Platform, T> {
+    pub fn new_rwlock<T>(&self, val: T) -> RwLock<'platform, Platform, T> {
         RwLock::new_from_synchronization(self, val)
     }
 }

@@ -17,22 +17,22 @@ use errors::{
 /// The `FileSystem` provides access to all file-system related functionality provided by LiteBox.
 ///
 /// A LiteBox `FileSystem` is parametric in the platform it runs on.
-pub struct FileSystem<Platform: platform::Provider> {
-    platform: &'static Platform,
+pub struct FileSystem<'platform, Platform: platform::Provider> {
+    platform: &'platform Platform,
 }
 
-impl<Platform: platform::Provider> FileSystem<Platform> {
+impl<'platform, Platform: platform::Provider> FileSystem<'platform, Platform> {
     /// Construct a new `FileSystem` instance
     ///
     /// This function is expected to only be invoked once per platform, as an initialiation step,
     /// and the created `FileSystem` handle is expected to be shared across all usage over the
     /// system.
-    pub fn new(platform: &'static Platform) -> Self {
+    pub fn new(platform: &'platform Platform) -> Self {
         Self { platform }
     }
 }
 
-impl<Platform: platform::Provider> FileSystem<Platform> {
+impl<Platform: platform::Provider> FileSystem<'_, Platform> {
     /// Opens a file
     ///
     /// The `mode` is only significant when creating a file
