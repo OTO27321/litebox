@@ -125,6 +125,16 @@ impl<Platform: platform::RawMutexProvider> EventManager<'_, Platform> {
                 .fetch_and(events.complement().bits(), SeqCst);
         }
     }
+
+    /// Convenience wrapper: call [`Self::mark_events`] when `value` is `true`, and
+    /// [`Self::unmark_events`] when `value` is `false`.
+    pub(crate) fn set_events(&self, internal_fd: InternalFd, events: Events, value: bool) {
+        if value {
+            self.mark_events(internal_fd, events);
+        } else {
+            self.unmark_events(internal_fd, events);
+        }
+    }
 }
 
 /// A builder for a [`Waitable`] that specifies a set of [`Events`] that can be waited upon for a

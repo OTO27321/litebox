@@ -4,9 +4,11 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::net::{Ipv4Addr, SocketAddr};
 
-use crate::fd::SocketFd;
+use crate::event::Events;
+use crate::fd::InternalFd;
 use crate::platform;
 use crate::platform::Instant;
+use crate::{event::EventManager, fd::SocketFd};
 
 use bitflags::bitflags;
 use smoltcp::socket::{icmp, raw, tcp, udp};
@@ -47,8 +49,19 @@ const MAX_PACKET_COUNT: usize = 32;
 ///
 /// An important decision that must be made by a user of a `Network` is decided by
 /// [`set_platform_interaction`](Self::set_platform_interaction), whose docs explain this further.
-pub struct Network<'platform, Platform: platform::IPInterfaceProvider + platform::TimeProvider> {
+///
+/// A user of `Network` who does not care about [events](crate::events) can choose to have a trivial
+/// provider for [`platform::RawMutexProvider`] that panics on all calls except `new_raw_mutex` and
+/// `underlying_atomic`.
+pub struct Network<'platform, Platform>
+where
+    Platform: platform::IPInterfaceProvider + platform::TimeProvider + platform::RawMutexProvider,
+{
     platform: &'platform Platform,
+    /// Events, and their manager
+    // TODO(jayb): Figure out a way to structure this better (currently, we are using it as a line, but
+    // eventually we might want to handle the DAG, how do we handle it then?)
+    pub event_manager: EventManager<'platform, Platform>,
     /// The set of sockets
     socket_set: smoltcp::iface::SocketSet<'static>,
     /// Handles into the `socket_set`; the position/index corresponds to the `raw_fd` of the
@@ -68,8 +81,9 @@ pub struct Network<'platform, Platform: platform::IPInterfaceProvider + platform
     platform_interaction: PlatformInteraction,
 }
 
-impl<'platform, Platform: platform::IPInterfaceProvider + platform::TimeProvider>
-    Network<'platform, Platform>
+impl<'platform, Platform> Network<'platform, Platform>
+where
+    Platform: platform::IPInterfaceProvider + platform::TimeProvider + platform::RawMutexProvider,
 {
     /// Construct a new `Network` instance
     ///
@@ -99,6 +113,7 @@ impl<'platform, Platform: platform::IPInterfaceProvider + platform::TimeProvider
         }
         Self {
             platform,
+            event_manager: EventManager::new(platform),
             socket_set: smoltcp::iface::SocketSet::new(vec![]),
             handles: vec![],
             device,
@@ -319,7 +334,10 @@ impl PlatformInteractionReinvocationAdvice {
     }
 }
 
-impl<Platform: platform::IPInterfaceProvider + platform::TimeProvider> Network<'_, Platform> {
+impl<Platform> Network<'_, Platform>
+where
+    Platform: platform::IPInterfaceProvider + platform::TimeProvider + platform::RawMutexProvider,
+{
     /// Sets the interaction with the outside world to `platform_interaction`.
     ///
     /// If this is set to automatic, then a user of the network does not need to worry about
@@ -391,6 +409,7 @@ impl<Platform: platform::IPInterfaceProvider + platform::TimeProvider> Network<'
             }
         };
         if socket_state_changed {
+            self.check_and_update_events();
             PlatformInteractionReinvocationAdvice::CallAgainImmediately
         } else {
             ingress_advice
@@ -413,9 +432,36 @@ impl<Platform: platform::IPInterfaceProvider + platform::TimeProvider> Network<'
             PlatformInteraction::Manual => {}
         }
     }
+
+    /// (Internal-only API) Socket states could have changed, update events
+    fn check_and_update_events(&mut self) {
+        for (raw_fd, socket_handle) in self
+            .handles
+            .iter()
+            .enumerate()
+            .filter_map(|(i, h)| h.as_ref().map(|h| (i, h)))
+        {
+            let internal_fd = InternalFd::Socket(raw_fd.try_into().unwrap());
+            match socket_handle.protocol() {
+                Protocol::Tcp => {
+                    let socket: &tcp::Socket = self.socket_set.get(socket_handle.handle);
+                    self.event_manager
+                        .set_events(internal_fd, Events::IN, socket.can_recv());
+                    self.event_manager
+                        .set_events(internal_fd, Events::OUT, socket.can_send());
+                }
+                Protocol::Udp => unimplemented!(),
+                Protocol::Icmp => unimplemented!(),
+                Protocol::Raw { protocol: _ } => unimplemented!(),
+            }
+        }
+    }
 }
 
-impl<Platform: platform::IPInterfaceProvider + platform::TimeProvider> Network<'_, Platform> {
+impl<Platform> Network<'_, Platform>
+where
+    Platform: platform::IPInterfaceProvider + platform::TimeProvider + platform::RawMutexProvider,
+{
     /// Explicitly private-only function that returns the current (smoltcp) Instant, relative to the
     /// initialized arbitrary 0-point in time.
     fn now(&self) -> smoltcp::time::Instant {
@@ -525,6 +571,8 @@ impl<Platform: platform::IPInterfaceProvider + platform::TimeProvider> Network<'
                 }
                 // TODO: Should we `.close()` or should we `.abort()`?
                 socket.abort();
+                self.event_manager
+                    .mark_events(fd.as_internal_fd(), Events::HUP);
             }
         }
         let SocketFd { x: mut fd } = fd;
